@@ -1,10 +1,9 @@
 {
-    "hello": "world",
-    "number": 100.0,
-    "null": null,
-    "true": true,
-    "false": false,
-    "array": [
-        null
-    ]
+  "hello": "world",
+  "number": 100.0,
+  "null": null,
+  "true": true,
+  "false": false,
+  "a": "a",
+  "array": [null]
 }

@@ -4,15 +4,6 @@ use std::{collections::HashMap, fs};
 
 use thiserror::Error;
 
-macro_rules! return_err {
-    ($expr:expr) => {
-        match $expr {
-            Ok(v) => v,
-            Err(err) => return Err(err),
-        }
-    };
-}
-
 #[derive(Debug, PartialEq)]
 enum JsonValue {
     Null,
@@ -60,36 +51,32 @@ impl JsonParser {
     }
 
     fn read(&mut self) -> Result<char, JsonParserError> {
-        match self.chars.get(self.cursor) {
-            Some(char) => Ok(*char),
-            None => Err(JsonParserError::Eof),
+        if let Some(ch) = self.chars.get(self.cursor) {
+            return Ok(*ch);
         }
+        Err(JsonParserError::Eof)
     }
 
     fn consume(&mut self) -> Result<char, JsonParserError> {
-        let res = return_err!(self.read());
+        let res = self.read()?;
         self.cursor += 1;
         Ok(res)
     }
 
     fn consume_check(&mut self, expected: char) -> Result<(), JsonParserError> {
-        match self.consume() {
-            Ok(got) => {
-                if got != expected {
-                    return Err(JsonParserError::InvalidChar(expected, got));
-                }
-                return Ok(());
-            }
-            Err(e) => Err(e),
+        let got = self.consume()?;
+        if got != expected {
+            return Err(JsonParserError::InvalidChar(expected, got));
         }
+        Ok(())
     }
 
     fn parse_string(&mut self) -> Result<String, JsonParserError> {
-        return_err!(self.consume_check('"'));
+        self.consume_check('"')?;
         let mut end = false;
         let mut text = String::new();
         while self.cursor < self.chars.len() {
-            let char = return_err!(self.consume());
+            let char = self.consume()?;
             if char == '"' {
                 end = true;
                 break;
@@ -105,17 +92,17 @@ impl JsonParser {
 
     fn parse_next(&mut self) -> JsonResult {
         self.chop();
-        let char = return_err!(self.read());
+        let char = self.read()?;
         match char {
             '{' => self.parse_object(),
-            '"' => Ok(JsonValue::String(return_err!(self.parse_string()))),
+            '"' => Ok(JsonValue::String(self.parse_string()?)),
             '[' => self.parse_array(),
             _ => {
                 let mut text = String::new();
                 if char.is_numeric() {
                     let mut found_point = false;
                     while self.cursor < self.chars.len() {
-                        let char = return_err!(self.read());
+                        let char = self.read()?;
                         if char == '.' {
                             if !found_point {
                                 found_point = true
@@ -138,7 +125,7 @@ impl JsonParser {
 
                 if char.is_alphabetic() {
                     while self.cursor < self.chars.len() {
-                        let char = return_err!(self.read());
+                        let char = self.read()?;
                         if !char.is_alphabetic() {
                             break;
                         }
@@ -158,7 +145,7 @@ impl JsonParser {
     }
 
     fn parse_array(&mut self) -> JsonResult {
-        return_err!(self.consume_check('['));
+        self.consume_check('[')?;
         self.chop();
 
         let mut expect_next = false;
@@ -166,7 +153,7 @@ impl JsonParser {
         let mut result = Vec::<JsonValue>::new();
 
         while self.cursor < self.chars.len() {
-            if return_err!(self.read()) == ']' {
+            if self.read()? == ']' {
                 if expect_next {
                     return Err(JsonParserError::Unknown);
                 }
@@ -175,10 +162,10 @@ impl JsonParser {
                 break;
             }
 
-            result.push(return_err!(self.parse_next()));
+            result.push(self.parse_next()?);
 
             self.chop();
-            let next = return_err!(self.consume());
+            let next = self.consume()?;
             if next != ',' {
                 if next == ']' {
                     end = true;
@@ -197,7 +184,7 @@ impl JsonParser {
     }
 
     fn parse_object(&mut self) -> JsonResult {
-        return_err!(self.consume_check('{'));
+        self.consume_check('{')?;
         self.chop();
 
         let mut expect_next = false;
@@ -205,7 +192,7 @@ impl JsonParser {
         let mut result = HashMap::<String, JsonValue>::new();
 
         while self.cursor < self.chars.len() {
-            if return_err!(self.read()) == '}' {
+            if self.read()? == '}' {
                 if expect_next {
                     return Err(JsonParserError::Unknown);
                 }
@@ -214,16 +201,16 @@ impl JsonParser {
                 break;
             }
 
-            let key = return_err!(self.parse_string());
+            let key = self.parse_string()?;
 
             self.chop();
-            return_err!(self.consume_check(':'));
+            self.consume_check(':')?;
 
             self.chop();
-            result.insert(key, return_err!(self.parse_next()));
+            result.insert(key, self.parse_next()?);
 
             self.chop();
-            let next = return_err!(self.consume());
+            let next = self.consume()?;
             if next != ',' {
                 if next == '}' {
                     end = true;
