@@ -63,31 +63,62 @@ impl JsonParser {
         Ok(res)
     }
 
-    fn consume_check(&mut self, expected: char) -> Result<(), JsonParserError> {
+    fn consume_check(&mut self, expected: char) -> Result<char, JsonParserError> {
         let got = self.consume()?;
         if got != expected {
             return Err(JsonParserError::InvalidChar(expected, got));
         }
-        Ok(())
+        Ok(got)
     }
 
     fn parse_string(&mut self) -> Result<String, JsonParserError> {
         self.consume_check('"')?;
         let mut end = false;
         let mut text = String::new();
-        while self.cursor < self.chars.len() {
-            let char = self.consume()?;
-            if char == '"' {
+        while let Ok(ch) = self.consume() {
+            if ch == '"' {
                 end = true;
                 break;
             }
-            text.push(char);
+            text.push(ch);
         }
         if end {
             Ok(text)
         } else {
             Err(JsonParserError::NoEnd)
         }
+    }
+
+    fn parse_number(&mut self) -> Result<f64, JsonParserError> {
+        let mut buffer = String::new();
+        let mut found_point = false;
+        while let Ok(ch) = self.read() {
+            if !ch.is_numeric() && ch != '.' {
+                break;
+            }
+            self.cursor += 1;
+            buffer.push(ch);
+        }
+        Ok(buffer
+            .parse::<f64>()
+            .map_err(|_| JsonParserError::InvalidNumber(buffer))?)
+    }
+
+    fn parse_identifier(&mut self) -> JsonResult {
+        let mut buffer = String::new();
+        while let Ok(ch) = self.read() {
+            if !ch.is_alphabetic() {
+                break;
+            }
+            buffer.push(ch);
+            self.cursor += 1
+        }
+        return match buffer.as_str() {
+            "null" => Ok(JsonValue::Null),
+            "true" => Ok(JsonValue::Bool(true)),
+            "false" => Ok(JsonValue::Bool(false)),
+            _ => Err(JsonParserError::Unknown),
+        };
     }
 
     fn parse_next(&mut self) -> JsonResult {
@@ -98,46 +129,11 @@ impl JsonParser {
             '"' => Ok(JsonValue::String(self.parse_string()?)),
             '[' => self.parse_array(),
             _ => {
-                let mut text = String::new();
                 if char.is_numeric() {
-                    let mut found_point = false;
-                    while self.cursor < self.chars.len() {
-                        let char = self.read()?;
-                        if char == '.' {
-                            if !found_point {
-                                found_point = true
-                            } else {
-                                text.push(char);
-                                return Err(JsonParserError::InvalidNumber(text));
-                            }
-                        } else if !char.is_numeric() {
-                            break;
-                        }
-                        self.cursor += 1;
-                        text.push(char);
-                    }
-                    let number = match text.parse::<f64>() {
-                        Ok(n) => n,
-                        Err(_) => return Err(JsonParserError::InvalidNumber(text)),
-                    };
-                    return Ok(JsonValue::Number(number));
+                    return Ok(JsonValue::Number(self.parse_number()?));
                 }
-
                 if char.is_alphabetic() {
-                    while self.cursor < self.chars.len() {
-                        let char = self.read()?;
-                        if !char.is_alphabetic() {
-                            break;
-                        }
-                        text.push(char);
-                        self.cursor += 1
-                    }
-                    return match text.as_str() {
-                        "null" => Ok(JsonValue::Null),
-                        "true" => Ok(JsonValue::Bool(true)),
-                        "false" => Ok(JsonValue::Bool(false)),
-                        _ => Err(JsonParserError::Unknown),
-                    };
+                    return Ok(self.parse_identifier()?);
                 }
                 Err(JsonParserError::Unknown)
             }
@@ -150,10 +146,10 @@ impl JsonParser {
 
         let mut expect_next = false;
         let mut end = false;
-        let mut result = Vec::<JsonValue>::new();
+        let mut result = Vec::new();
 
-        while self.cursor < self.chars.len() {
-            if self.read()? == ']' {
+        while let Ok(ch) = self.read() {
+            if ch == ']' {
                 if expect_next {
                     return Err(JsonParserError::Unknown);
                 }
@@ -161,9 +157,7 @@ impl JsonParser {
                 self.cursor += 1;
                 break;
             }
-
             result.push(self.parse_next()?);
-
             self.chop();
             let next = self.consume()?;
             if next != ',' {
@@ -191,8 +185,8 @@ impl JsonParser {
         let mut end = false;
         let mut result = HashMap::<String, JsonValue>::new();
 
-        while self.cursor < self.chars.len() {
-            if self.read()? == '}' {
+        while let Ok(ch) = self.read() {
+            if ch == '}' {
                 if expect_next {
                     return Err(JsonParserError::Unknown);
                 }
@@ -200,16 +194,15 @@ impl JsonParser {
                 self.cursor += 1;
                 break;
             }
-
             let key = self.parse_string()?;
-
             self.chop();
+
             self.consume_check(':')?;
-
             self.chop();
+
             result.insert(key, self.parse_next()?);
-
             self.chop();
+
             let next = self.consume()?;
             if next != ',' {
                 if next == '}' {
@@ -234,11 +227,12 @@ impl JsonParser {
 }
 
 fn parse_file(file_path: &str) -> JsonResult {
-    let content: Vec<char> = match fs::read_to_string(file_path) {
-        Ok(v) => v.chars().collect(),
-        Err(_) => return Err(JsonParserError::Unknown),
-    };
-    let mut parser = JsonParser::new(content);
+    let mut parser = JsonParser::new(
+        fs::read_to_string(file_path)
+            .map_err(|_| JsonParserError::Unknown)?
+            .chars()
+            .collect(),
+    );
     parser.parse()
 }
 
